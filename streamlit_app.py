@@ -360,7 +360,7 @@ def _render_result(result, idx=None):
             def cc(val):
                 return {"malicious":"color:#f85149;font-weight:600","suspicious":"color:#d29922;font-weight:600",
                         "harmless":"color:#3fb950","undetected":"color:#8b949e"}.get(val,"")
-            st.dataframe(df.style.applymap(cc, subset=["Category"]), use_container_width=True, hide_index=True)
+            st.dataframe(df.style.map(cc, subset=["Category"]), use_container_width=True, hide_index=True)
             flagged = df[df["Category"].isin(["malicious","suspicious"])]
             if not flagged.empty:
                 with st.expander(f"🚨 Flagging Engines ({len(flagged)})"):
