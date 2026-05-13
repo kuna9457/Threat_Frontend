@@ -40,8 +40,11 @@ st.markdown("""
 # Sidebar
 with st.sidebar:
     st.image("https://www.virustotal.com/gui/images/favicon.png", width=30)
+    st.markdown("### 🧭 Navigation")
+    app_mode = st.radio("Select Tool", ["Threat Scanner", "Enterprise Risk Assessment"])
+    st.markdown("---")
     st.markdown("### ⚙️ Settings")
-    default_api = os.getenv("BACKEND_API_URL", "http://localhost:8000/api/v1")
+    default_api = os.getenv("BACKEND_API_URL", "http://localhost:8001/api/v1")
     api_url = st.text_input("Backend API URL", value=default_api)
     st.info("Make sure the backend server is running.")
     st.markdown("---")
@@ -52,6 +55,106 @@ with st.sidebar:
 st.markdown("## 🛡️ URL Threat Intelligence Platform")
 st.markdown("Analyze URLs across **90+ security engines**, **SSL/TLS grading**, and **mail-server analysis**.")
 st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+
+if app_mode == "Enterprise Risk Assessment":
+    st.markdown("### ⚖️ Enterprise Risk Exception Assessment")
+    st.markdown("*Assess security risk for requested exceptions and generate an enterprise report.*")
+    
+    with st.form("risk_assessment_form"):
+        assess_url = st.text_input("URL to Assess", placeholder="https://example.com")
+        
+        req_col, ctrl_col = st.columns(2)
+        
+        with req_col:
+            st.markdown("#### 📝 Exception Requests")
+            req_opts = [
+                "Allow Upload", "Allow Download", "Disable SSL Inspection", 
+                "Sandbox Bypass", "Remove Browser Isolation", "Allow External Sharing", 
+                "Allow Executable Download", "Allow Remote Access Tool", "Allow Browser Extension"
+            ]
+            selected_reqs = []
+            for opt in req_opts:
+                if st.checkbox(opt, key=f"req_{opt}"):
+                    selected_reqs.append(opt)
+                    
+            st.markdown("#### 💬 Business Justification")
+            business_justification = st.text_area("Why is this access required?", height=100)
+            
+        with ctrl_col:
+            st.markdown("#### 🛡️ Existing Security Controls")
+            ctrl_opts = [
+                "Endpoint AV", "EDR", "DLP", "CASB", "MFA", "Logging Enabled", 
+                "SIEM Monitoring", "DNS Security", "File Type Restriction", 
+                "URL Filtering", "SSL Inspection"
+            ]
+            selected_ctrls = []
+            for opt in ctrl_opts:
+                if st.checkbox(opt, key=f"ctrl_{opt}"):
+                    selected_ctrls.append(opt)
+                    
+        submit_risk = st.form_submit_button("📊 Generate Assessment Report", use_container_width=True)
+        
+    if submit_risk:
+        if not assess_url:
+            st.error("Please enter a URL to assess.")
+        elif not selected_reqs:
+            st.error("Please select at least one Exception Request.")
+        elif not business_justification:
+            st.error("Please provide a business justification.")
+        else:
+            with st.spinner("Analyzing risk and generating recommendations..."):
+                payload = {
+                    "url": assess_url,
+                    "request_types": selected_reqs,
+                    "business_justification": business_justification,
+                    "existing_controls": selected_ctrls
+                }
+                try:
+                    resp = requests.post(f"{api_url}/assess-risk", json=payload, timeout=300)
+                    resp.raise_for_status()
+                    data = resp.json()
+                    
+                    st.success("✅ Assessment Complete!")
+                    
+                    # Layout results
+                    st.markdown("### 📊 Risk Assessment Results")
+                    
+                    c1, c2 = st.columns(2)
+                    c1.metric("Inherent Risk Score", f"{data['inherent_risk_score']} / 100", data['inherent_risk_classification'], delta_color="inverse")
+                    c2.metric("Residual Risk Score", f"{data['residual_risk_score']} / 100", data['residual_risk_classification'], delta_color="inverse")
+                    
+                    st.markdown("---")
+                    st.markdown("#### 🛡️ Applied Compensating Controls")
+                    if data['applied_controls']:
+                        for ac in data['applied_controls']:
+                            st.markdown(f"- **{ac['control']}** (Reduces risk by {ac['risk_reduction']} points)")
+                    else:
+                        st.info("No mapped compensating controls selected.")
+                        
+                    st.markdown("---")
+                    rc1, rc2 = st.columns(2)
+                    with rc1:
+                        st.markdown("#### 🚨 Threat Analysis")
+                        for t in data['threat_analysis']:
+                            st.markdown(f"- {t}")
+                    with rc2:
+                        st.markdown("#### 💡 Suggested Mitigation Controls")
+                        for s in data['suggested_mitigation_controls']:
+                            st.markdown(f"- {s}")
+                            
+                    st.markdown("---")
+                    st.markdown("#### 🎯 Final Recommendation")
+                    rec_color = "#3fb950" if "ALLOW" in data['final_recommendation'] and "BLOCK" not in data['final_recommendation'] else "#f85149"
+                    if "COMPENSATING" in data['final_recommendation']:
+                        rec_color = "#d29922"
+                        
+                    st.markdown(f"<div style='text-align:center; padding:20px; border-radius:10px; border:2px solid {rec_color}; background-color:{rec_color}22;'><h2 style='color:{rec_color}; margin:0;'>{data['final_recommendation']}</h2></div>", unsafe_allow_html=True)
+                    
+                except Exception as e:
+                    st.error(f"❌ Assessment Failed: {e}")
+                    
+    st.stop()
+
 
 # Multi-URL Input
 st.markdown("### 📝 Enter URLs to Scan")
