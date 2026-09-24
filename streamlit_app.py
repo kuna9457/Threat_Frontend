@@ -112,6 +112,11 @@ st.markdown(f"""
     .badge-allow  {{ background: #ECFDF5; color: #065F46; border: 1.5px solid #059669; }}
     .badge-review {{ background: #FFFBEB; color: #92400E; border: 1.5px solid #D97706; }}
     .badge-block  {{ background: #FEF2F2; color: #991B1B; border: 1.5px solid {ICICI_RED}; }}
+    .badge-no-risk {{ background: #ECFDF5; color: #065F46; border: 1.5px solid #059669; }}
+    .badge-low     {{ background: #EFF6FF; color: #1D4ED8; border: 1.5px solid #2563EB; }}
+    .badge-medium  {{ background: #FFFBEB; color: #92400E; border: 1.5px solid #D97706; }}
+    .badge-high    {{ background: #FEF2F2; color: #991B1B; border: 1.5px solid {ICICI_RED}; }}
+    .badge-unknown {{ background: #F1F5F9; color: #475569; border: 1.5px solid #94A3B8; }}
 
     /* ── Section Heading Cards ───────────────────────────────────────────── */
     .section-card {{
@@ -869,7 +874,7 @@ if app_mode == "Email Assessment":
 render_icici_header("URL Threat Intelligence Scanner")
 st.markdown(
     "<p style='color:#64748B; margin-top:-10px;'>"
-    "Analyze URLs across <b>90+ security engines</b>, <b>SSL/TLS grading</b>, "
+    "Analyze URLs across <b>90+ security engines</b>, <b>SSLyze TLS/SSL protocol checks</b>, "
     "and <b>mail-server analysis</b> in accordance with ICICI Bank Cybersecurity Framework.</p>",
     unsafe_allow_html=True
 )
@@ -889,83 +894,47 @@ with col_btn1:
     scan_clicked = st.button("🔍 Scan All URLs", width='stretch')
 
 
-def _grade_class(grade):
-    if not grade or grade == "N/A": return "grade-f"
-    g = grade.upper()[0]
-    return {"A": "grade-a", "B": "grade-b", "C": "grade-c", "D": "grade-d"}.get(g, "grade-f")
-
-
-def _render_ssl_section(ssl):
-    if not ssl or "error" in ssl:
-        st.warning(ssl.get("error", "SSL data not available") if ssl else "No SSL data")
+def _render_sslyze_section(sslyze, risk_sources=None):
+    if not sslyze or sslyze.get("error"):
+        st.warning(sslyze.get("error", "SSLyze data not available") if sslyze else "No SSLyze data")
         return
-    grade = ssl.get("grade", "N/A")
-    gc = _grade_class(grade)
-    st.markdown(f"**SSL Grade:** <span class='grade-badge {gc}'>{grade}</span>", unsafe_allow_html=True)
 
-    s1, s2, s3, s4 = st.columns(4)
-    s1.metric("IP Address", ssl.get("ip_address", "—"))
-    s2.metric("Server Name", ssl.get("server_name", "—") or "—")
-    s3.metric("HSTS", ssl.get("hsts", {}).get("status", "unknown").title())
-    s4.metric("OCSP Stapling", "Yes" if ssl.get("ocsp_stapling") else "No")
+    level = ((risk_sources or {}).get("SSLyze") or {}).get("level")
+    if level:
+        st.info(f"🛡️ SSLyze Risk Level: {level}")
 
-    cert = ssl.get("certificate", {})
-    if cert:
-        with st.expander("🔐 Certificate Details"):
-            for k, v in [("Subject", cert.get("subject")), ("Issuer", cert.get("issuer")),
-                         ("Key Algorithm", f"{cert.get('key_alg','')} ({cert.get('key_size','')} bit)"),
-                         ("Signature", cert.get("sig_alg")), ("Serial", cert.get("serial")),
-                         ("SHA-256", cert.get("sha256_fingerprint"))]:
-                if v: st.markdown(f"**{k}:** `{v}`")
-            nb, na = cert.get("not_before"), cert.get("not_after")
-            if nb:
-                try: st.markdown(f"**Valid From:** `{datetime.utcfromtimestamp(nb/1000).strftime('%Y-%m-%d')}`")
-                except: pass
-            if na:
-                try: st.markdown(f"**Valid Until:** `{datetime.utcfromtimestamp(na/1000).strftime('%Y-%m-%d')}`")
-                except: pass
-            san = cert.get("san", [])
-            if san: st.markdown(f"**SANs:** {', '.join(san[:10])}")
+    s1, s2 = st.columns(2)
+    s1.metric("Host", sslyze.get("host", "—"))
+    s2.metric("Port", sslyze.get("port", 443))
 
-    protos = ssl.get("protocols", [])
+    protos = sslyze.get("protocols", [])
     if protos:
-        with st.expander(f"📡 Protocols ({len(protos)})"):
-            pdf_proto = pd.DataFrame(protos)
-            st.dataframe(pdf_proto, width='stretch', hide_index=True)
-
-    vulns = ssl.get("vulnerabilities", {})
-    if vulns:
-        with st.expander("🛡️ Vulnerability Checks"):
-            vuln_rows = []
-            for k, v in vulns.items():
-                label = k.replace("_", " ").title()
-                if isinstance(v, bool):
-                    status = "🔴 VULNERABLE" if v else "🟢 Safe"
-                elif isinstance(v, int):
-                    status = "🟢 Safe" if v <= 1 else "🔴 VULNERABLE"
-                else:
-                    status = str(v)
-                vuln_rows.append({"Check": label, "Status": status})
-            st.dataframe(pd.DataFrame(vuln_rows), width='stretch', hide_index=True)
-
-    ciphers = ssl.get("cipher_suites", [])
-    if ciphers:
-        with st.expander(f"🔑 Cipher Suites ({ssl.get('total_cipher_suites', len(ciphers))})"):
-            st.dataframe(pd.DataFrame(ciphers), width='stretch', hide_index=True)
+        st.markdown(f"**Accepted TLS/SSL Protocols ({len(protos)}):**")
+        st.dataframe(pd.DataFrame(protos), width='stretch', hide_index=True)
+    else:
+        st.warning("No recognised TLS/SSL protocols detected.")
 
 
 def _render_result(result, idx=None):
     data = result.get("data", {})
     vt = data.get("virustotal", {})
-    urlscan_data = data.get("urlscan", {})
     abuseipdb_data = data.get("abuseipdb", {})
-    ssl = data.get("ssl_labs", {})
+    sslyze = data.get("sslyze", {})
 
     verdict = result.get("verdict", "UNKNOWN")
     badge_class = f"badge-{verdict.lower()}"
     verdict_icon = {"ALLOW": "✅", "REVIEW": "⚠️", "BLOCK": "🚫"}.get(verdict, "❓")
     score = result.get("score", 0)
     score_color = "#059669" if score < 30 else ("#D97706" if score < 60 else ICICI_RED)
+
+    final_level = result.get("final_risk_level", "Unknown")
+    final_badge_class = f"badge-{final_level.lower().replace(' ', '-')}"
+    final_level_color = {
+        "No Risk": "#059669", "Low": "#2563EB", "Medium": "#D97706",
+        "High": ICICI_RED, "Unknown": "#6B7280",
+    }.get(final_level, "#6B7280")
+    risk_sources = result.get("risk_sources", {})
+    risk_remarks = result.get("risk_remarks", "")
 
     # URL Card Header
     st.markdown(f"""
@@ -982,29 +951,59 @@ def _render_result(result, idx=None):
                 </div>
             </div>
             <div style="text-align:right; margin-left:20px;">
-                <div style="color:#94A3B8; font-size:0.7rem;">Risk Score</div>
-                <div style="color:{score_color}; font-size:2rem; font-weight:800; line-height:1;">{score}</div>
-                <div style="color:#94A3B8; font-size:0.7rem;">/100</div>
+                <div style="color:#94A3B8; font-size:0.7rem;">Final Risk Level</div>
+                <div style="color:{final_level_color}; font-size:1.7rem; font-weight:800; line-height:1.3;">{final_level}</div>
             </div>
         </div>
     </div>
     """, unsafe_allow_html=True)
 
     c1, c2, c3, c4, c5 = st.columns(5)
-    c1.metric("Risk Score", f"{score} / 100")
+    c1.metric("Risk Score (legacy)", f"{score} / 100")
     c2.metric("🔴 Malicious", vt.get("malicious", 0))
     c3.metric("🟡 Suspicious", vt.get("suspicious", 0))
     c4.metric("🟢 Harmless", vt.get("harmless", 0))
     c5.metric("⚪ Undetected", vt.get("undetected", 0))
 
-    st.markdown(f"**Verdict:** <span class='badge {badge_class}'>{verdict_icon} {verdict}</span>", unsafe_allow_html=True)
+    col_v, col_bd = st.columns([1, 2])
+    with col_v:
+        st.markdown(f"**Final Risk Level:** <span class='badge {final_badge_class}'>{final_level}</span>", unsafe_allow_html=True)
+        st.markdown(f"**Legacy Verdict:** <span class='badge {badge_class}'>{verdict_icon} {verdict}</span>", unsafe_allow_html=True)
 
-    tabs = st.tabs(["🔬 VirusTotal", "🔒 SSL Labs", "🌐 URLScan", "🚫 AbuseIPDB", "📄 Raw JSON"])
+    if risk_sources:
+        with col_bd:
+            src_text = " &nbsp;&bull;&nbsp; ".join(
+                f"{name}: {s.get('level') or 'N/A'}" for name, s in risk_sources.items()
+            )
+            st.markdown(
+                f"<div style='text-align:right; color:#64748B; font-size:0.8rem; padding-top:6px;'>"
+                f"<b>Risk Sources (VirusTotal, AbuseIPDB, SSLyze, WHOIS):</b><br>{src_text}"
+                f"<br><i>{risk_remarks}</i></div>",
+                unsafe_allow_html=True
+            )
+
+    breakdown = result.get("score_breakdown", {})
+    if breakdown:
+        with col_bd:
+            bd_text = " &nbsp;&bull;&nbsp; ".join([f"{k}: +{v}" for k,v in breakdown.items()])
+            st.markdown(f"<div style='text-align:right; color:#64748B; font-size:0.8rem; padding-top:6px;'><b>Score Breakdown:</b><br>{bd_text}</div>", unsafe_allow_html=True)
+
+    tabs = st.tabs(["🔬 VirusTotal", "🔒 SSLyze", "🚫 AbuseIPDB", "📄 Raw JSON"])
 
     with tabs[0]:
+        vt_level = (risk_sources.get("VirusTotal") or {}).get("level")
+        if vt_level: st.info(f"🛡️ VirusTotal Risk Level: {vt_level}")
+        whois_source = risk_sources.get("WHOIS") or {}
+        whois_usable = whois_source.get("usable")
+        whois_level = whois_source.get("level")
+        # Failed/unknown WHOIS lookups (and bare-IP skips) are left out of
+        # the UI entirely — not counted in the risk calculation, so not
+        # shown here either.
+        if whois_usable and whois_level:
+            st.info(f"🛡️ WHOIS Risk Level: {whois_level} ({whois_source.get('detail','')})")
         st.markdown(f"### <span style='color:{ICICI_NAVY}'>🌐 URL Metadata</span>", unsafe_allow_html=True)
         m1, m2, m3 = st.columns(3)
-        m1.metric("Domain Age (days)", data.get("domain_age", "Unknown"))
+        m1.metric("Domain Age (days)", data.get("whois", {}).get("age_days", "—") if whois_usable else "—")
         m2.metric("HTTP Response Code", vt.get("last_http_response_code") or "N/A")
         m3.metric("Times Submitted", vt.get("times_submitted", 0))
         for label, value in [("Final URL", vt.get("final_url") or result.get("url")),
@@ -1052,22 +1051,11 @@ def _render_result(result, idx=None):
                 st.success("✅ No engines flagged this URL.")
 
     with tabs[1]:
-        _render_ssl_section(ssl)
+        _render_sslyze_section(sslyze, risk_sources)
 
     with tabs[2]:
-        if "error" in urlscan_data:
-            st.warning(urlscan_data["error"])
-        else:
-            u1, u2, u3 = st.columns(3)
-            u1.metric("Malicious", "🚨 YES" if urlscan_data.get("malicious") else "✅ NO")
-            u2.metric("Score", urlscan_data.get("score", 0))
-            u3.metric("Total Scans", urlscan_data.get("total_scans", 0))
-            st.markdown(f"**Country:** {urlscan_data.get('country')} | **Server:** {urlscan_data.get('server')}")
-            rurl = urlscan_data.get("report_url", "")
-            if rurl and rurl != "No recent scans":
-                st.markdown(f"🔗 [View Full Report]({rurl})")
-
-    with tabs[3]:
+        abuse_level = (risk_sources.get("AbuseIPDB") or {}).get("level")
+        if abuse_level: st.info(f"🛡️ AbuseIPDB Risk Level: {abuse_level}")
         if "error" in abuseipdb_data:
             st.warning(abuseipdb_data["error"])
         else:
@@ -1077,7 +1065,7 @@ def _render_result(result, idx=None):
             a3.metric("Usage Type", abuseipdb_data.get("usageType", "Unknown"))
             st.markdown(f"**IP:** `{abuseipdb_data.get('ip','')}` | **ISP:** {abuseipdb_data.get('isp','')} | **Country:** {abuseipdb_data.get('countryCode','')}")
 
-    with tabs[4]:
+    with tabs[3]:
         st.json(result)
 
 
@@ -1087,23 +1075,22 @@ if scan_clicked:
     if not urls:
         st.error("Please enter at least one URL.")
     else:
-        spinner_msg = f"Scanning {len(urls)} URL(s) across all ICICI Bank intelligence sources…"
-        if len(urls) > 15:
-            spinner_msg += " Large batches are paced to stay within vendor API rate limits, so this can take a while — it will finish, just be patient."
-        with st.spinner(spinner_msg):
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        results = []
+        
+        for i, url in enumerate(urls):
+            status_text.text(f"Scanning ({i+1}/{len(urls)}): {url} …")
             try:
-                # Large batches (up to 100 URLs) are intentionally rate-limited
-                # against VirusTotal/AbuseIPDB/URLScan (see app/utils/rate_limiter.py),
-                # so this can legitimately take tens of minutes — the timeout here
-                # is generous on purpose rather than fast.
-                resp = requests.post(f"{api_url}/scan-batch", json={"urls": urls}, timeout=3600)
+                resp = requests.post(f"{api_url}/scan-url", params={"url": url}, timeout=600)
                 resp.raise_for_status()
-                batch = resp.json()
+                results.append(resp.json())
             except Exception as e:
-                st.error(f"❌ Failed to reach backend: {e}")
-                st.stop()
-
-        results = batch.get("results", [])
+                st.error(f"❌ Failed to reach backend for {url}: {e}")
+            
+            progress_bar.progress((i + 1) / len(urls))
+        
+        status_text.empty()
         st.session_state["last_results"] = results
         st.success(f"✅ Scanned {len(results)} URL(s) successfully!")
 
@@ -1124,6 +1111,17 @@ if st.session_state.get("last_results"):
         height=100,
     )
 
+    st.markdown("#### <span style='color:#1C3E73'>Application Details (Optional)</span>", unsafe_allow_html=True)
+    include_app_details = st.checkbox("Include Application Details in Report")
+    
+    app_name, can_id, server_ip, request_id = None, None, None, None
+    if include_app_details:
+        col1, col2, col3, col4 = st.columns(4)
+        app_name = col1.text_input("App Name")
+        can_id = col2.text_input("Can ID")
+        server_ip = col3.text_input("Server IP")
+        request_id = col4.text_input("Request Id", placeholder="e.g. SN1, SN2, SN3")
+
     download_pdf_clicked = st.button("⚙️ Generate PDF Report", width='stretch', key='gen_pdf')
 
     if download_pdf_clicked:
@@ -1134,6 +1132,12 @@ if st.session_state.get("last_results"):
                     "urls": urls,
                     "final_comment": final_comment
                 }
+                if include_app_details:
+                    if app_name: payload["app_name"] = app_name
+                    if can_id: payload["can_id"] = can_id
+                    if server_ip: payload["server_ip"] = server_ip
+                    if request_id: payload["request_id"] = request_id
+
                 # Generous on purpose — same reasoning as the scan-batch call above.
                 resp = requests.post(f"{api_url}/report/pdf", json=payload, timeout=3600)
                 resp.raise_for_status()
