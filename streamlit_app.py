@@ -329,11 +329,11 @@ with st.sidebar:
     )
     st.markdown("---")
     st.markdown("### ⚙️ Settings")
-    default_api = (
-        st.secrets.get("BACKEND_API_URL")
-        or os.getenv("BACKEND_API_URL")
-        or "http://localhost:8001/api/v1"
-    )
+    try:
+        _secret_api = st.secrets.get("BACKEND_API_URL")
+    except Exception:
+        _secret_api = None
+    default_api = _secret_api or os.getenv("BACKEND_API_URL") or "http://localhost:8001/api/v1"
     api_url = st.text_input("Backend API URL", value=default_api)
     st.info("Ensure the ICICI Bank backend service is running.")
     st.markdown("---")
