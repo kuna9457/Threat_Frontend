@@ -1110,8 +1110,9 @@ if st.session_state.get("last_results"):
     results = st.session_state["last_results"]
 
     final_comment = st.text_area(
-        "Final Comment",
-        value="Based on the assessment, no significant security risks were identified",
+        "Final Comment (optional)",
+        value="",
+        placeholder="Add any additional comments here (optional)…",
         height=100,
     )
 
